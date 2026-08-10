@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "papers": [
+    {
+      "id": "2408.09869v5",
+      "title": "Docling Technical Report",
+      "url": "https://arxiv.org/pdf/2408.09869v5",
+      "license": "CC BY 4.0",
+      "sha256": "82dd470712ce8389f19f20eb9330475e2166a281f8c7990a9f1d0763d73b4d22",
+      "size_bytes": 5566575,
+      "annotations": "annotations/2408.09869v5.json",
+      "challenges": ["columns", "tables", "pipeline diagram", "charts"]
+    },
+    {
+      "id": "2308.13418v1",
+      "title": "Nougat: Neural Optical Understanding for Academic Documents",
+      "url": "https://arxiv.org/pdf/2308.13418v1",
+      "license": "CC BY-SA 4.0",
+      "sha256": "679be336ce8010d3dc86b9530f0a30d4d5ea2a13153c6f274601b40f4382745b",
+      "size_bytes": 4133781,
+      "annotations": "annotations/2308.13418v1.json",
+      "challenges": ["formulas", "tables", "architecture diagrams", "dense appendix"]
+    },
+    {
+      "id": "1911.02782v3",
+      "title": "S2ORC: The Semantic Scholar Open Research Corpus",
+      "url": "https://arxiv.org/pdf/1911.02782v3",
+      "license": "CC BY 4.0",
+      "sha256": "d8caafea71d29921977b8d3e2aacd03017e2aae640a7f60fb01e9f4bc75b0a3c",
+      "size_bytes": 2111239,
+      "annotations": "annotations/1911.02782v3.json",
+      "challenges": ["citations", "bibliography", "tables", "two columns"]
+    },
+    {
+      "id": "1706.03762v7",
+      "title": "Attention Is All You Need",
+      "url": "https://arxiv.org/pdf/1706.03762v7",
+      "license": "arXiv non-exclusive distribution license",
+      "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+      "size_bytes": 2215244,
+      "annotations": "annotations/1706.03762v7.json",
+      "challenges": ["formulas", "tables", "model diagram", "attention heatmaps"]
+    },
+    {
+      "id": "1906.11241v1",
+      "title": "First M87 Event Horizon Telescope Results. IV. Imaging the Central Supermassive Black Hole",
+      "url": "https://arxiv.org/pdf/1906.11241v1",
+      "license": "arXiv non-exclusive distribution license",
+      "sha256": "3c3da8e8b2443e99580acfb8abb1135b426c5049acec692ca767a3a532af0fe7",
+      "size_bytes": 21306171,
+      "annotations": "annotations/1906.11241v1.json",
+      "challenges": ["astronomical images", "multi-panel figures", "plots", "long tables"]
+    }
+  ]
+}

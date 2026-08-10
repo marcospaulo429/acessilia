@@ -1,0 +1,14 @@
+{
+  "title": "First M87 Event Horizon Telescope Results. IV. Imaging the Central Supermassive Black Hole",
+  "headings": ["Introduction", "Background", "Observations and Data Processing", "Pre-imaging Considerations", "First M87 Images from Blind Imaging", "Determining Imaging Parameters"],
+  "content_samples": ["prominent ring with a diameter", "enhanced brightness in the south", "four observing nights"],
+  "figures": [
+    {"id": "figure-4", "caption_terms": ["first EHT images of M87"], "factual_terms": ["four independent imaging teams"]},
+    {"id": "figure-14", "caption_terms": ["Fiducial images of M87"], "factual_terms": ["three separate imaging pipelines"]}
+  ],
+  "tables": [],
+  "formulas": [],
+  "references": [
+    {"entry_terms": ["Event Horizon Telescope Collaboration"], "callout_terms": ["M87"]}
+  ]
+}

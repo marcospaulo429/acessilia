@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.limiter import limiter
 from backend.config.settings import settings
+from backend.services.queue_service import unified_queue
 
 pytest.importorskip("fastapi.testclient")
 
@@ -100,6 +101,16 @@ def test_upload_oversized_prompt(client):
     assert "6000" in resp.json()["detail"]
 
 
+def test_upload_rejects_invalid_document_profile(client):
+    resp = client.post(
+        "/api/v1/jobs",
+        files={"document_file": ("doc.pdf", _fake_pdf_bytes(), "application/pdf")},
+        data={"document_profile": "article"},
+    )
+    assert resp.status_code == 400
+    assert "document_profile" in resp.json()["detail"]
+
+
 def test_upload_oversized_file(client, monkeypatch):
     monkeypatch.setattr(settings, "max_file_size_mb", 0.000001)
     resp = client.post(
@@ -119,6 +130,7 @@ def test_upload_ok_and_status_queued(client, monkeypatch):
         files={"document_file": ("doc.pdf", _fake_pdf_bytes(), "application/pdf")},
         data={
             "mode": "normal",
+            "document_profile": "scientific",
             "custom_prompt": "",
             "thinking_mode": "false",
             "email": "test@example.com",
@@ -135,6 +147,12 @@ def test_upload_ok_and_status_queued(client, monkeypatch):
     assert status.status_code == 200
     assert status.json()["status"] == "queued"
     assert status.json()["arquivo"] == "doc.pdf"
+    queued_item = next(
+        item
+        for item in unified_queue._queue
+        if item.task_id == task_id
+    )
+    assert queued_item.callback_args["job"].document_profile == "scientific"
 
 
 def test_status_unknown(client):

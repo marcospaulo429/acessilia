@@ -67,6 +67,7 @@ class ApiJob:
     file_path: Path
     filename: str
     mode: str = "normal"
+    document_profile: str = "auto"
     custom_prompt: str | None = None
     thinking_mode: bool = False
     email: str | None = None
@@ -99,6 +100,7 @@ class JobExecutor:
                 job.file_path,
                 status_callback=status_callback,
                 mode=job.mode,
+                document_profile=job.document_profile,
                 custom_prompt=job.custom_prompt,
                 thinking_mode=job.thinking_mode,
                 task_id=task_id,

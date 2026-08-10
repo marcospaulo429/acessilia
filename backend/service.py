@@ -17,6 +17,7 @@ from backend.config.settings import settings
 from backend.tools.logger import logger
 from backend.tools.text_processor import merge_broken_paragraphs
 from backend.pipeline.canonical_builder import build_canonical_document
+from backend.pipeline.scientific import RequestedDocumentProfile, detect_document_profile
 from backend.pipeline.verbosity_manager import verbosity_for_mode
 
 
@@ -51,9 +52,9 @@ def _build_orchestrator():
 agente = _build_orchestrator()
 
 
-def _cache_version() -> str:
+def _cache_version(document_profile: str = "general") -> str:
     engine = _normalized_engine()
-    return f"{settings.ai_client}-{engine}-v1"
+    return f"{settings.ai_client}-{engine}-{document_profile}-v2"
 
 
 def _limpar_tarefas_orfas():
@@ -83,11 +84,15 @@ async def process(
     file_path: Path,
     status_callback: Callable[[str], Coroutine] | None = None,
     mode: str = "normal",
+    document_profile: RequestedDocumentProfile = "auto",
     custom_prompt: str | None = None,
     thinking_mode: bool = False,
     task_id: str | None = None,
 ) -> dict[str, Any]:
-    cached = await get_cached(file_path, _cache_version())
+    resolved_profile = detect_document_profile(file_path, document_profile)
+    profile_metadata = resolved_profile.model_dump()
+    cache_version = _cache_version(resolved_profile.effective_profile)
+    cached = await get_cached(file_path, cache_version)
     if cached is not None:
         logger.info("Cache hit para {}", file_path.name)
         if isinstance(cached, dict):
@@ -100,6 +105,7 @@ async def process(
             source_name=file_path.name,
             source_path=str(file_path),
             audience=["reader"],
+            metadata={"document_profile": profile_metadata},
         )
 
     task_id = state_manager.criar_tarefa(file_path, task_id=task_id)
@@ -135,6 +141,7 @@ async def process(
             file_path.parent,
             status_callback,
             mode=mode,
+            document_profile=resolved_profile.effective_profile,
             structured_output=True,
             custom_prompt=custom_prompt,
             thinking_mode=thinking_mode,
@@ -167,7 +174,10 @@ async def process(
             source_name=file_path.name,
             source_path=str(file_path),
             audience=["reader"],
-            metadata=canonical_metadata,
+            metadata={
+                **(canonical_metadata or {}),
+                "document_profile": profile_metadata,
+            },
             technical_warnings=technical_warnings,
         )
 
@@ -175,7 +185,7 @@ async def process(
             task_id,
             json.dumps(canonical_document, ensure_ascii=False),
         )
-        await set_cache(file_path, canonical_document, _cache_version())
+        await set_cache(file_path, canonical_document, cache_version)
         _salvar_json_canonico(canonical_document, file_path.name)
 
         await finalizar_conversao(
@@ -224,6 +234,7 @@ async def process(
             source_name=file_path.name,
             source_path=str(file_path),
             audience=["reader"],
+            metadata={"document_profile": profile_metadata},
         )
 
 

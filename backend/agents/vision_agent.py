@@ -24,6 +24,7 @@ class VisionAgent:
         total_pages: int = 0,
         mode: str | None = None,
         custom_prompt: str | None = None,
+        scientific_context: str | None = None,
     ) -> str:
         """Descreve uma região visual usando IA de visão."""
         effective_mode = mode or self.mode
@@ -40,6 +41,15 @@ class VisionAgent:
             prompt_key = region_prompt_key(classification)
             region_prompt = load_region_prompt(prompt_key)
             prompt = region_prompt if region_prompt else self.system_prompt
+
+        if scientific_context:
+            prompt += (
+                "\n\nContexto científico extraído do documento:\n"
+                f"{scientific_context.strip()}\n\n"
+                "Use o contexto para identificar o papel da figura, mas diferencie "
+                "o que é visível, o que é informado pela legenda e o que é "
+                "interpretação dos autores. Não invente valores ilegíveis."
+            )
 
         try:
             logger.debug(

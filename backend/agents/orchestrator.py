@@ -30,6 +30,7 @@ class AccessibilityOrchestrator:
         tmpdir: Path,
         status_callback: Callable[[str], Coroutine] | None = None,
         mode: str | None = None,
+        document_profile: str = "general",
         structured_output: bool = False,
         custom_prompt: str | None = None,
         thinking_mode: bool = False,
@@ -98,6 +99,8 @@ class AccessibilityOrchestrator:
             tasks = self.reader.analyse_page(
                 page_path, page_num, total_pages, is_pdf,
             )
+            if document_profile == "scientific":
+                _attach_scientific_context(tasks)
 
             agent_results = await self._dispatch_tasks(
                 tasks,
@@ -151,6 +154,7 @@ class AccessibilityOrchestrator:
                 "page_count": total_pages,
                 "mode": effective_mode,
                 "source_path": str(file_path),
+                "document_profile": document_profile,
             }
 
         return texto_final
@@ -184,6 +188,7 @@ class AccessibilityOrchestrator:
                     total_pages=total_pages,
                     mode=mode,
                     custom_prompt=custom_prompt,
+                    scientific_context=task.scientific_context,
                 )
             elif task.agent_target == "data":
                 coro = self.data.process_region(
@@ -221,3 +226,28 @@ class AccessibilityOrchestrator:
                     results[idx] = result
 
         return results
+
+
+def _attach_scientific_context(tasks: list[RegionTask]) -> None:
+    captions = [
+        (index, task.text.strip())
+        for index, task in enumerate(tasks)
+        if task.text.strip()
+        and task.classification.lower() in {"caption", "figure_caption", "text"}
+        and _looks_like_scientific_caption(task.text)
+    ]
+    for index, task in enumerate(tasks):
+        if task.agent_target != "vision" or not task.image_bytes:
+            continue
+        nearby = [
+            (abs(index - caption_index), caption_text)
+            for caption_index, caption_text in captions
+            if abs(index - caption_index) <= 3
+        ]
+        if nearby:
+            task.scientific_context = min(nearby, key=lambda item: item[0])[1]
+
+
+def _looks_like_scientific_caption(text: str) -> bool:
+    normalized = text.strip().lower()
+    return normalized.startswith(("figure ", "fig. ", "figura ", "table ", "tabela "))

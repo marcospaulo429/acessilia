@@ -50,6 +50,7 @@ class ApiClient:
         file_path: Path,
         filename: str,
         mode: str = "normal",
+        document_profile: str = "auto",
         custom_prompt: str | None = None,
         thinking_mode: bool = False,
         email: str | None = None,
@@ -57,6 +58,7 @@ class ApiClient:
     ) -> dict[str, Any]:
         data = {
             "mode": mode,
+            "document_profile": document_profile,
             "thinking_mode": str(thinking_mode).lower(),
             "source": source,
         }

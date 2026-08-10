@@ -96,6 +96,15 @@ No rodapé aparecem quatro ícones em azul escuro, separados por pequenos traço
                     </div>
 
                     <div class="mb-3">
+                        <label for="document_profile" class="form-label">Tipo de documento</label>
+                        <select class="form-select" id="document_profile" name="document_profile">
+                            <option value="auto" selected>Detectar automaticamente</option>
+                            <option value="scientific">Artigo científico</option>
+                            <option value="general">Documento geral</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="custom_prompt" class="form-label">Prompt Personalizado</label>
                         <textarea class="form-control" id="custom_prompt" name="custom_prompt"
                                   rows="6" maxlength="6000"

@@ -1,0 +1,16 @@
+{
+  "title": "Nougat: Neural Optical Understanding for Academic Documents",
+  "headings": ["Introduction", "Related Work", "Model", "Datasets", "Results & Evaluation", "Predictions", "Conclusion", "Acknowledgments", "References"],
+  "content_samples": ["Visual Transformer model", "Optical Character Recognition", "markup language"],
+  "figures": [
+    {"id": "figure-1", "caption_terms": ["simple end-to-end architecture"], "factual_terms": ["Swin Transformer encoder"]},
+    {"id": "figure-5", "caption_terms": ["page with many mathematical equations"], "factual_terms": ["equations"]}
+  ],
+  "tables": [
+    {"id": "table-1", "caption_terms": ["Results on arXiv test set"], "header_terms": ["PDF"]}
+  ],
+  "formulas": [],
+  "references": [
+    {"entry_terms": ["Tesseract OCR"], "callout_terms": ["[2]"]}
+  ]
+}

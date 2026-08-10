@@ -1,0 +1,19 @@
+{
+  "title": "Attention Is All You Need",
+  "headings": ["Introduction", "Background", "Model Architecture", "Why Self-Attention", "Training", "Results", "Conclusion", "References"],
+  "content_samples": ["based solely on attention mechanisms", "dispensing with recurrence and convolutions", "28.4 BLEU"],
+  "figures": [
+    {"id": "figure-1", "caption_terms": ["The Transformer - model architecture"], "factual_terms": ["Transformer"]},
+    {"id": "figure-2", "caption_terms": ["Scaled Dot-Product Attention"], "factual_terms": ["Multi-Head Attention"]}
+  ],
+  "tables": [
+    {"id": "table-1", "caption_terms": ["Maximum path lengths"], "header_terms": ["Complexity per Layer"]},
+    {"id": "table-2", "caption_terms": ["better BLEU scores"], "header_terms": ["BLEU"]}
+  ],
+  "formulas": [
+    {"id": "equation-1", "source_terms": ["Attention(Q, K, V)", "softmax"], "verbalization_terms": []}
+  ],
+  "references": [
+    {"entry_terms": ["Bahdanau"], "callout_terms": ["[2]"]}
+  ]
+}

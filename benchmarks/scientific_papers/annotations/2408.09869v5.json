@@ -1,0 +1,15 @@
+{
+  "title": "Docling Technical Report",
+  "headings": ["Introduction", "Getting Started", "Processing pipeline", "Performance", "Applications", "Future work and contributions", "References"],
+  "content_samples": ["MIT-licensed open-source package for PDF document conversion", "layout analysis", "table structure recognition"],
+  "figures": [
+    {"id": "figure-1", "caption_terms": ["Sketch of Docling's default processing pipeline"], "factual_terms": ["pipeline"]}
+  ],
+  "tables": [
+    {"id": "table-1", "caption_terms": ["Runtime characteristics of Docling"], "header_terms": ["backend"]}
+  ],
+  "formulas": [],
+  "references": [
+    {"entry_terms": ["DocLayNet"], "callout_terms": ["TableFormer"]}
+  ]
+}

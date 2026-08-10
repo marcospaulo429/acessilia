@@ -1,0 +1,16 @@
+{
+  "title": "S2ORC: The Semantic Scholar Open Research Corpus",
+  "headings": ["Introduction", "Data Processing", "Applications of S2ORC", "References"],
+  "content_samples": ["academic papers exhibit many interesting characteristics", "citation mentions linked to paper identifiers", "full text papers"],
+  "figures": [
+    {"id": "figure-2", "caption_terms": ["Distribution of papers"], "factual_terms": ["Microsoft Academic"]}
+  ],
+  "tables": [
+    {"id": "table-1", "caption_terms": ["comparison of S2ORC"], "header_terms": ["Corpus", "body text"]},
+    {"id": "table-4", "caption_terms": ["Extraction and linking statistics"], "header_terms": ["PDF"]}
+  ],
+  "formulas": [],
+  "references": [
+    {"entry_terms": ["Radev et al., 2009"], "callout_terms": ["AAN"]}
+  ]
+}

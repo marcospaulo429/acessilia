@@ -11,6 +11,7 @@ from backend.agents.data_agent import DataAgent
 from backend.core.agents.informational_structural import InformationalStructuralAgent
 from backend.core.execution.executor import ExecutorAgent, MethodRegistry
 from backend.core.execution.models import ExecutionReport, MethodResult
+from backend.core.execution.scientific_handlers import register_scientific_handlers
 from backend.core.manifest.docling_extractor import DoclingManifestExtractor
 from backend.core.manifest.pymupdf_extractor import PyMuPDFManifestExtractor
 from backend.core.manifest.models import ManifestElement, ProcessingManifest
@@ -21,6 +22,7 @@ from backend.core.planning.planner_agent import PlannerAgent
 from backend.agents.vision_agent import VisionAgent
 from backend.tools.code_tools import normalize_code_text
 from backend.tools.logger import logger
+from backend.pipeline.scientific.enricher import enrich_scientific_manifest
 
 
 class PddlAccessibilityOrchestrator:
@@ -78,9 +80,10 @@ class PddlAccessibilityOrchestrator:
             "html-exporter",
             "local-summarizer",
             "vision",
-            "human-review",
         ):
             registry.register(method, _noop_handler)
+
+        register_scientific_handlers(registry)
 
         return ExecutorAgent(registry, domain=DomainBundle.load())
 
@@ -90,6 +93,7 @@ class PddlAccessibilityOrchestrator:
         tmpdir: Path,
         status_callback: Callable[[str], Coroutine] | None = None,
         mode: str | None = None,
+        document_profile: str = "general",
         structured_output: bool = False,
         custom_prompt: str | None = None,
         thinking_mode: bool = False,
@@ -109,6 +113,9 @@ class PddlAccessibilityOrchestrator:
             file_path.resolve(),
             language="pt-BR",
         )
+
+        if document_profile == "scientific":
+            enrich_scientific_manifest(manifest)
 
         if status_callback:
             await status_callback("Enriquecendo descrições de imagens...")
@@ -130,15 +137,23 @@ class PddlAccessibilityOrchestrator:
         plan, comparison = await asyncio.to_thread(self._build_plan, manifest)
 
         execution_report: ExecutionReport | None = None
-        if self.execute_dry_run:
+        should_execute = self.execute_dry_run or document_profile == "scientific"
+        if should_execute:
             if status_callback:
-                await status_callback("Validando plano em dry-run...")
-            _, execution_report = await asyncio.to_thread(
+                execution_label = (
+                    "Executando plano científico..."
+                    if document_profile == "scientific"
+                    else "Validando plano em dry-run..."
+                )
+                await status_callback(execution_label)
+            executed_manifest, execution_report = await asyncio.to_thread(
                 self.executor.execute,
                 plan,
                 manifest,
-                dry_run=True,
+                dry_run=document_profile != "scientific",
             )
+            if document_profile == "scientific":
+                manifest = executed_manifest
 
         payload = build_pddl_structured_payload(
             file_path=file_path,
@@ -235,6 +250,7 @@ async def _enrich_picture_descriptions(
             page_num=page_number,
             total_pages=total_pages,
             mode=mode,
+            scientific_context=_scientific_context_for_element(element),
         )
         if description and description.strip():
             element.text = description.strip()
@@ -251,6 +267,17 @@ async def _enrich_picture_descriptions(
             "Pipeline PDDL: {} imagem(ns) enriquecida(s) com descrição visual",
             enriched,
         )
+
+
+def _scientific_context_for_element(element: ManifestElement) -> str | None:
+    parts: list[str] = []
+    caption = element.metadata.get("scientific_caption")
+    if isinstance(caption, dict) and str(caption.get("text", "")).strip():
+        parts.append(f"Legenda: {str(caption['text']).strip()}")
+    section = element.metadata.get("scientific_section")
+    if isinstance(section, dict) and str(section.get("title", "")).strip():
+        parts.append(f"Seção: {str(section['title']).strip()}")
+    return "\n".join(parts) or None
 
 
 async def _enrich_table_structures(

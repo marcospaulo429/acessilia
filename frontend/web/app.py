@@ -116,6 +116,7 @@ async def _submit_via_api(
     document_file: UploadFile,
     email: str,
     mode: str,
+    document_profile: str = "auto",
     custom_prompt: str | None = None,
     thinking_mode: bool = False,
 ):
@@ -125,6 +126,7 @@ async def _submit_via_api(
             file_path,
             document_file.filename or "documento",
             mode=mode,
+            document_profile=document_profile,
             custom_prompt=custom_prompt,
             thinking_mode=thinking_mode,
             email=email,
@@ -180,6 +182,7 @@ async def handle_advanced_upload(
     request: Request,
     email: str = Form(...),
     document_file: UploadFile = File(...),
+    document_profile: str = Form("auto"),
     custom_prompt: str = Form(""),
     thinking_mode: bool = Form(False),
 ):
@@ -198,6 +201,7 @@ async def handle_advanced_upload(
         document_file=document_file,
         email=email,
         mode="normal",
+        document_profile=document_profile,
         custom_prompt=prompt or None,
         thinking_mode=thinking_mode,
     )

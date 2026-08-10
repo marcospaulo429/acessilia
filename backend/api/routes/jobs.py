@@ -53,11 +53,19 @@ async def submit_job(
     request: Request,
     document_file: UploadFile = File(...),
     mode: str = Form("normal"),
+    document_profile: str = Form("auto"),
     custom_prompt: str = Form(""),
     thinking_mode: bool = Form(False),
     email: str = Form(""),
     source: str = Form("api"),
 ):
+    normalized_profile = document_profile.strip().lower()
+    if normalized_profile not in {"auto", "scientific", "general"}:
+        raise HTTPException(
+            status_code=400,
+            detail="document_profile inválido; use auto, scientific ou general.",
+        )
+
     filename = Path(document_file.filename or "documento").name
     valid, error_msg = validate_file(filename, settings.max_file_size_bytes)
     if not valid:
@@ -77,6 +85,7 @@ async def submit_job(
         file_path=file_path,
         filename=filename,
         mode=mode,
+        document_profile=normalized_profile,
         custom_prompt=prompt or None,
         thinking_mode=thinking_mode,
         email=email or None,

@@ -20,6 +20,7 @@ class _FakeApiClient:
         file_path,
         filename,
         mode="normal",
+        document_profile="auto",
         custom_prompt=None,
         thinking_mode=False,
         email=None,
@@ -30,6 +31,7 @@ class _FakeApiClient:
                 "file_path": file_path,
                 "filename": filename,
                 "mode": mode,
+                "document_profile": document_profile,
                 "custom_prompt": custom_prompt,
                 "thinking_mode": thinking_mode,
                 "email": email,
@@ -98,6 +100,7 @@ def test_advanced_upload_sends_prompt_and_thinking(web_client):
         data={
             "email": "test@example.com",
             "custom_prompt": "Explique em detalhes",
+            "document_profile": "scientific",
             "thinking_mode": "true",
         },
     )
@@ -105,6 +108,7 @@ def test_advanced_upload_sends_prompt_and_thinking(web_client):
     assert len(web_client.fake.submitted) == 1
     sub = web_client.fake.submitted[0]
     assert sub["custom_prompt"] == "Explique em detalhes"
+    assert sub["document_profile"] == "scientific"
     assert sub["thinking_mode"] is True
 
 

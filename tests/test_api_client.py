@@ -20,13 +20,19 @@ async def test_submit_job(tmp_path):
     file_path.write_bytes(b"%PDF-1.4")
 
     client = ApiClient(base_url=BASE)
-    result = await client.submit_job(file_path, "doc.pdf", source="test")
+    result = await client.submit_job(
+        file_path,
+        "doc.pdf",
+        document_profile="scientific",
+        source="test",
+    )
 
     assert result["task_id"] == "abcd1234"
     assert route.called
     request = route.calls[0].request
     assert b"doc.pdf" in request.read()
     assert b"source" in request.content
+    assert b"scientific" in request.content
 
 
 @respx.mock

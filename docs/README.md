@@ -11,6 +11,7 @@ This documentation describes the modular architecture: an interface-agnostic **c
 5. [Use Cases](use_cases.md)
 6. [Modules](modules.md)
 7. [Classes](classes.md)
+8. [Plano de leitura acessivel de artigos cientificos](plano_artigos_cientificos_pddl_vs_legacy.md)
 
 ## UML Diagrams (PlantUML)
 1. Use cases: [docs/use_cases/use_cases.puml](use_cases/use_cases.puml)

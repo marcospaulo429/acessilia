@@ -12,6 +12,7 @@ from typing import Any
 from backend.agents.orchestrator import AccessibilityOrchestrator
 from backend.agents.pddl_orchestrator import PddlAccessibilityOrchestrator
 from backend.pipeline.canonical_builder import build_canonical_document
+from backend.pipeline.scientific.quality import evaluate_scientific_quality
 from backend.pipeline.verbosity_manager import verbosity_for_mode
 
 
@@ -88,6 +89,7 @@ async def _run_legacy(file_path: Path, mode: str, tmpdir: Path) -> dict[str, Any
         tmpdir=tmpdir,
         structured_output=True,
         mode=mode,
+        document_profile="scientific",
     )
     canonical = build_canonical_document(
         structured,
@@ -114,7 +116,7 @@ async def _run_pddl_with_extractor(
     orchestrator = PddlAccessibilityOrchestrator(
         planner_backend="internal",
         preferred_plan="internal",
-        execute_dry_run=True,
+        execute_dry_run=False,
         enable_ocr=extractor_backend == "docling",
         extractor_backend=extractor_backend,
     )
@@ -122,6 +124,7 @@ async def _run_pddl_with_extractor(
         file_path=file_path,
         tmpdir=tmpdir,
         structured_output=True,
+        document_profile="scientific",
     )
     canonical_metadata = structured.get("canonical_metadata")
     technical_warnings = structured.get("technical_warnings")
@@ -204,6 +207,7 @@ async def run_benchmark(
     mode: str,
     export_formats: list[str],
     pddl_extractor_backend: str,
+    annotations: dict[str, Any] | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     report: dict[str, Any] = {
@@ -247,6 +251,10 @@ async def run_benchmark(
             "export_errors": legacy_export_errors,
             "summary": _summarize_document(legacy["canonical"]),
         }
+        if annotations is not None:
+            report["engines"]["legacy"]["quality"] = (
+                evaluate_scientific_quality(legacy["canonical"], annotations)
+            )
     except Exception as exc:
         report["engines"]["legacy"] = {
             "status": "error",
@@ -287,6 +295,10 @@ async def run_benchmark(
             "export_errors": pddl_export_errors,
             "summary": _summarize_document(pddl["canonical"]),
         }
+        if annotations is not None:
+            report["engines"]["pddl"]["quality"] = (
+                evaluate_scientific_quality(pddl["canonical"], annotations)
+            )
     except Exception as exc:
         report["engines"]["pddl"] = {
             "status": "error",
@@ -313,6 +325,25 @@ async def run_benchmark(
             "text_length_delta": pddl_summary["text_length"]
             - legacy_summary["text_length"],
         }
+        legacy_quality = report["engines"]["legacy"].get("quality")
+        pddl_quality = report["engines"]["pddl"].get("quality")
+        if isinstance(legacy_quality, dict) and isinstance(pddl_quality, dict):
+            quality_delta = round(
+                pddl_quality["score"] - legacy_quality["score"],
+                2,
+            )
+            report["comparison"].update(
+                {
+                    "quality_score_delta_pddl_minus_legacy": quality_delta,
+                    "quality_winner": (
+                        "pddl"
+                        if quality_delta > 0
+                        else "legacy"
+                        if quality_delta < 0
+                        else "tie"
+                    ),
+                }
+            )
 
     report_path = output_dir / "benchmark_report.json"
     report_path.write_text(
@@ -352,6 +383,11 @@ def parse_args() -> argparse.Namespace:
         choices=["pymupdf", "docling"],
         help="Extrator estrutural do pipeline PDDL.",
     )
+    parser.add_argument(
+        "--annotations",
+        type=Path,
+        help="Anotacoes JSON de referencia para calcular qualidade cientifica.",
+    )
     return parser.parse_args()
 
 
@@ -370,6 +406,21 @@ def main() -> int:
     if not export_formats:
         export_formats = ["pdf"]
 
+    annotations = None
+    if args.annotations is not None:
+        annotation_path = args.annotations.resolve()
+        if not annotation_path.is_file():
+            print(f"Erro: anotações não encontradas: {annotation_path}")
+            return 1
+        try:
+            annotations = json.loads(annotation_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Erro: anotações inválidas: {exc}")
+            return 1
+        if not isinstance(annotations, dict):
+            print("Erro: anotações devem ser um objeto JSON.")
+            return 1
+
     report_path = asyncio.run(
         run_benchmark(
             file_path=file_path,
@@ -377,6 +428,7 @@ def main() -> int:
             mode=args.mode,
             export_formats=export_formats,
             pddl_extractor_backend=args.pddl_extractor_backend,
+            annotations=annotations,
         )
     )
     print(f"Relatório: {report_path}")
