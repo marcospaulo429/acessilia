@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Iterable
 
 import fitz
 
@@ -117,6 +117,9 @@ class PddlAccessibilityOrchestrator:
         fast_downward_search: str = "astar(blind())",
         enable_ocr: bool = True,
         extractor_backend: str = "docling",
+        execute_live: bool = False,
+        max_replans: int = 8,
+        unavailable_methods: Iterable[str] = (),
     ) -> None:
         self.planner_backend = planner_backend
         self.preferred_plan = preferred_plan
@@ -124,6 +127,9 @@ class PddlAccessibilityOrchestrator:
         self.fast_downward = fast_downward
         self.fast_downward_alias = fast_downward_alias
         self.fast_downward_search = fast_downward_search
+        self.execute_live = execute_live
+        self.max_replans = max_replans
+        self.unavailable_methods = tuple(unavailable_methods)
         self.extractor_backend = extractor_backend.strip().lower()
 
         if self.extractor_backend == "pymupdf":
@@ -210,18 +216,34 @@ class PddlAccessibilityOrchestrator:
 
         if status_callback:
             await status_callback("Gerando plano nominal com PDDL...")
-        plan, comparison = await asyncio.to_thread(self._build_plan, manifest)
 
         execution_report: ExecutionReport | None = None
-        if self.execute_dry_run:
+        replans = 0
+        replan_failure: str | None = None
+        if self.execute_live:
             if status_callback:
-                await status_callback("Validando plano em dry-run...")
-            _, execution_report = await asyncio.to_thread(
-                self.executor.execute,
-                plan,
+                await status_callback(
+                    "Executando plano com replanejamento monitorado..."
+                )
+            (
                 manifest,
-                dry_run=True,
-            )
+                plan,
+                comparison,
+                execution_report,
+                replans,
+                replan_failure,
+            ) = await asyncio.to_thread(self._execute_with_replanning, manifest)
+        else:
+            plan, comparison = await asyncio.to_thread(self._build_plan, manifest)
+            if self.execute_dry_run:
+                if status_callback:
+                    await status_callback("Validando plano em dry-run...")
+                _, execution_report = await asyncio.to_thread(
+                    self.executor.execute,
+                    plan,
+                    manifest,
+                    dry_run=True,
+                )
 
         payload = build_pddl_structured_payload(
             file_path=file_path,
@@ -230,6 +252,8 @@ class PddlAccessibilityOrchestrator:
             planner_backend=self.planner_backend,
             execution_report=execution_report,
             comparison=comparison,
+            replans=replans,
+            replan_failure=replan_failure,
         )
 
         if structured_output:
@@ -247,6 +271,7 @@ class PddlAccessibilityOrchestrator:
                 fast_downward_alias=self.fast_downward_alias,
                 fast_downward_search=self.fast_downward_search,
                 preferred_backend=self.preferred_plan,
+                unavailable_methods=self.unavailable_methods,
             )
             if self.preferred_plan not in plans:
                 raise RuntimeError(
@@ -261,8 +286,74 @@ class PddlAccessibilityOrchestrator:
             fast_downward=self.fast_downward,
             fast_downward_alias=self.fast_downward_alias,
             fast_downward_search=self.fast_downward_search,
+            unavailable_methods=self.unavailable_methods,
         )
         return plan, None
+
+    def _execute_with_replanning(
+        self,
+        manifest: ProcessingManifest,
+    ) -> tuple[
+        ProcessingManifest,
+        NominalPlan,
+        PlanningComparison | None,
+        ExecutionReport,
+        int,
+        str | None,
+    ]:
+        """Executa o plano em modo live, replanejando após falhas de método.
+
+        Cada iteração ou satisfaz uma obrigação ou registra um par
+        (obrigação, método) como tentado; ambos os conjuntos são finitos,
+        então o laço termina. ``max_replans`` é apenas um cinto de segurança.
+        """
+        plan, comparison = self._build_plan(manifest)
+        current = manifest
+        replans = 0
+        failure: str | None = None
+        while True:
+            current, report = self.executor.execute(plan, current, dry_run=False)
+            if report.status == "completed":
+                break
+            if not report.replan_required:
+                failed_step = (
+                    report.steps[report.failed_step_index]
+                    if report.failed_step_index is not None
+                    and report.failed_step_index < len(report.steps)
+                    else None
+                )
+                failure = (
+                    failed_step.message
+                    if failed_step and failed_step.message
+                    else "Execução falhou sem métodos alternativos"
+                )
+                break
+            if replans >= self.max_replans:
+                failure = (
+                    f"Limite de replanejamentos atingido ({self.max_replans})"
+                )
+                break
+            replans += 1
+            try:
+                plan, comparison = self._build_plan(current)
+            except (ValueError, RuntimeError) as exc:
+                failure = f"Replanejamento impossível: {exc}"
+                break
+        if failure:
+            logger.warning(
+                "Pipeline PDDL: execução encerrada sem completar após {} "
+                "replanejamento(s): {}",
+                replans,
+                failure,
+            )
+            if current.status != "completed":
+                current.status = "failed"
+        else:
+            logger.info(
+                "Pipeline PDDL: plano concluído com {} replanejamento(s)",
+                replans,
+            )
+        return current, plan, comparison, report, replans, failure
 
 
 async def _enrich_picture_descriptions(
@@ -605,6 +696,8 @@ def build_pddl_structured_payload(
     planner_backend: str,
     execution_report: ExecutionReport | None,
     comparison: PlanningComparison | None,
+    replans: int = 0,
+    replan_failure: str | None = None,
 ) -> dict[str, Any]:
     pages_payload = _manifest_pages_to_payload(manifest)
     text_output = _render_text_from_pages(pages_payload)
@@ -615,9 +708,20 @@ def build_pddl_structured_payload(
             "Executor nao foi executado; somente manifesto e plano foram gerados."
         )
 
+    if replan_failure:
+        technical_warnings.append(
+            f"Execucao encerrada sem completar: {replan_failure}"
+        )
+
     if comparison is not None:
         technical_warnings.append(
             f"Comparacao de planners: {comparison.comparison.verdict}."
+        )
+
+    obligation_counts: dict[str, int] = {}
+    for obligation in manifest.obligations:
+        obligation_counts[obligation.status] = (
+            obligation_counts.get(obligation.status, 0) + 1
         )
 
     return {
@@ -626,6 +730,12 @@ def build_pddl_structured_payload(
         "page_count": len(pages_payload),
         "mode": f"pddl-{planner_backend}",
         "source_path": str(file_path),
+        "pddl_execution": {
+            "status": execution_report.status if execution_report else None,
+            "replans": replans,
+            "failure": replan_failure,
+            "obligations": obligation_counts,
+        },
         "canonical_metadata": {
             "pipeline_engine": "pddl",
             "pddl_manifest_id": manifest.manifest_id,
@@ -633,6 +743,7 @@ def build_pddl_structured_payload(
             "pddl_plan_id": plan.plan_id,
             "pddl_planner": plan.planner,
             "pddl_expected_total_cost": plan.expected_total_cost,
+            "pddl_replans": replans,
             "pddl_execution_id": execution_report.execution_id
             if execution_report
             else None,
