@@ -253,6 +253,17 @@ class PddlAccessibilityOrchestrator:
             "local-summarizer",
             "vision",
             "human-review",
+            # Métodos do builder cujo trabalho real acontece no enriquecimento
+            # pré-planejamento (imagens/tabelas) ou que ainda não têm
+            # implementação dedicada; sem handler, a execução live falharia
+            # sem chance de replanejamento.
+            "vision-description",
+            "docling-table",
+            "pandoc-table",
+            "pandoc-code",
+            "docling-retry",
+            "pymupdf-region",
+            "deterministic-heading-repair",
         ):
             registry.register(method, _noop_handler)
 
@@ -353,6 +364,18 @@ class PddlAccessibilityOrchestrator:
         self,
         manifest: ProcessingManifest,
     ) -> tuple[NominalPlan, PlanningComparison | None]:
+        known_methods = {
+            method
+            for obligation in manifest.obligations
+            for method in obligation.admissible_methods
+        }
+        # O compilador rejeita métodos desconhecidos; documentos sem o tipo
+        # de obrigação correspondente não devem invalidar a compilação.
+        unavailable = tuple(
+            method
+            for method in self.unavailable_methods
+            if method in known_methods
+        )
         if self.planner_backend == "both":
             _, plans, comparison = self.planner.compare(
                 manifest,
@@ -360,7 +383,7 @@ class PddlAccessibilityOrchestrator:
                 fast_downward_alias=self.fast_downward_alias,
                 fast_downward_search=self.fast_downward_search,
                 preferred_backend=self.preferred_plan,
-                unavailable_methods=self.unavailable_methods,
+                unavailable_methods=unavailable,
             )
             if self.preferred_plan not in plans:
                 raise RuntimeError(
@@ -375,7 +398,7 @@ class PddlAccessibilityOrchestrator:
             fast_downward=self.fast_downward,
             fast_downward_alias=self.fast_downward_alias,
             fast_downward_search=self.fast_downward_search,
-            unavailable_methods=self.unavailable_methods,
+            unavailable_methods=unavailable,
         )
         return plan, None
 
