@@ -103,6 +103,94 @@ def _handle_latex_verbalizer_method(
     )
 
 
+def _propose_formula_latex_via_llm(image_bytes: bytes, page_num: int) -> str:
+    """Pede à LLM de visão uma proposta de LaTeX para a imagem da fórmula."""
+    agent = DataAgent()
+    return asyncio.run(
+        agent.process_region(
+            image_bytes=image_bytes,
+            classification="formula",
+            page_num=page_num,
+        )
+    )
+
+
+def _handle_llm_verbalizer_method(
+    manifest: ProcessingManifest, obligation_id: str
+) -> MethodResult:
+    """LLM propõe LaTeX; validadores determinísticos aceitam ou rejeitam.
+
+    O efeito só é confirmado se o LaTeX proposto sobreviver à cadeia
+    normalize -> MathML -> verbalização; alucinação vira rejeição e o
+    par (obrigação, llm-verbalizer) entra em tried no replanejamento.
+    """
+    elements = _formula_elements_for_obligation(manifest, obligation_id)
+    if not elements:
+        return MethodResult(
+            success=False,
+            validated=False,
+            message="Nenhuma fórmula encontrada para a obrigação",
+        )
+    source_file = Path(manifest.source.path)
+    converted = 0
+    for element in elements:
+        fallback_page_number = element.page_number
+        if fallback_page_number is None and len(manifest.pages) == 1:
+            fallback_page_number = manifest.pages[0].page_number
+        try:
+            image_bytes, page_number = _extract_picture_bytes(
+                source_file,
+                element,
+                fallback_page_number,
+            )
+        except Exception as exc:
+            logger.warning(
+                "llm-verbalizer: falha ao extrair imagem de {}: {}",
+                element.id,
+                exc,
+            )
+            continue
+        if not image_bytes:
+            continue
+        try:
+            proposed = _propose_formula_latex_via_llm(image_bytes, page_number)
+        except Exception as exc:
+            logger.warning(
+                "llm-verbalizer: LLM falhou para {}: {}",
+                element.id,
+                exc,
+            )
+            continue
+        latex = normalize_latex(proposed or "")
+        mathml = latex_to_mathml(latex) if latex else ""
+        spoken = verbalize_latex_fallback(latex) if latex else ""
+        if not mathml or not spoken:
+            logger.info(
+                "llm-verbalizer: proposta rejeitada pelo validador para {}",
+                element.id,
+            )
+            continue
+        element.text = latex
+        element.metadata["mathml"] = mathml
+        element.metadata["verbalization"] = spoken
+        element.metadata["latex_source"] = "llm-verbalizer"
+        converted += 1
+    if converted == len(elements):
+        return MethodResult(
+            success=True,
+            validated=True,
+            message=(
+                f"LLM verbalizou {converted} fórmula(s) com validação "
+                "determinística"
+            ),
+        )
+    return MethodResult(
+        success=False,
+        validated=False,
+        message=f"LLM verbalizou {converted}/{len(elements)} fórmula(s)",
+    )
+
+
 class PddlAccessibilityOrchestrator:
     """Orquestra o pipeline PDDL: IE -> Planner -> Executor."""
 
@@ -170,6 +258,7 @@ class PddlAccessibilityOrchestrator:
 
         registry.register("mathml", _handle_mathml_method)
         registry.register("latex-verbalizer", _handle_latex_verbalizer_method)
+        registry.register("llm-verbalizer", _handle_llm_verbalizer_method)
 
         return ExecutorAgent(registry, domain=DomainBundle.load())
 

@@ -236,3 +236,96 @@ def test_pddl_handlers_fail_for_unknown_obligation():
     result = _handle_mathml_method(manifest, "o-inexistente")
 
     assert not result.success
+
+
+# ── PDDL: handler llm-verbalizer (propõe-e-valida) ──
+
+
+def _fake_extract_picture_bytes(_source, _element, page):
+    return b"png-bytes", page or 1
+
+
+@pytest.mark.docling
+def test_pddl_llm_verbalizer_accepts_validated_latex(monkeypatch):
+    from backend.agents import pddl_orchestrator
+
+    monkeypatch.setattr(
+        pddl_orchestrator, "_extract_picture_bytes", _fake_extract_picture_bytes
+    )
+    monkeypatch.setattr(
+        pddl_orchestrator,
+        "_propose_formula_latex_via_llm",
+        lambda _image, _page: r"E=mc^2",
+    )
+
+    manifest = _manifest_with_formula()
+    result = pddl_orchestrator._handle_llm_verbalizer_method(manifest, "o-f")
+
+    assert result.success
+    element = manifest.elements[0]
+    assert element.metadata["mathml"].startswith("<math")
+    assert "igual a" in element.metadata["verbalization"]
+    assert element.metadata["latex_source"] == "llm-verbalizer"
+
+
+def test_pddl_llm_verbalizer_rejects_empty_proposal(monkeypatch):
+    from backend.agents import pddl_orchestrator
+
+    monkeypatch.setattr(
+        pddl_orchestrator, "_extract_picture_bytes", _fake_extract_picture_bytes
+    )
+    monkeypatch.setattr(
+        pddl_orchestrator,
+        "_propose_formula_latex_via_llm",
+        lambda _image, _page: "",
+    )
+
+    manifest = _manifest_with_formula()
+    result = pddl_orchestrator._handle_llm_verbalizer_method(manifest, "o-f")
+
+    assert not result.success
+    assert not result.validated
+    assert "mathml" not in manifest.elements[0].metadata
+
+
+def test_pddl_llm_verbalizer_rejects_llm_exception(monkeypatch):
+    from backend.agents import pddl_orchestrator
+
+    def boom(_image, _page):
+        raise RuntimeError("LLM indisponível")
+
+    monkeypatch.setattr(
+        pddl_orchestrator, "_extract_picture_bytes", _fake_extract_picture_bytes
+    )
+    monkeypatch.setattr(
+        pddl_orchestrator, "_propose_formula_latex_via_llm", boom
+    )
+
+    manifest = _manifest_with_formula()
+    result = pddl_orchestrator._handle_llm_verbalizer_method(manifest, "o-f")
+
+    assert not result.success
+    assert not result.validated
+    assert "mathml" not in manifest.elements[0].metadata
+
+
+def test_formula_cascade_places_llm_between_deterministic_and_human():
+    from backend.core.manifest.builder import (
+        DEFAULT_METHOD_COSTS,
+        OBLIGATION_BY_TYPE,
+    )
+
+    _, _, methods = OBLIGATION_BY_TYPE["formula"]
+    assert methods == [
+        "mathml",
+        "latex-verbalizer",
+        "llm-verbalizer",
+        "human-review",
+    ]
+    costs = [DEFAULT_METHOD_COSTS[m] for m in methods]
+    assert costs == sorted(costs)
+    assert (
+        DEFAULT_METHOD_COSTS["latex-verbalizer"]
+        < DEFAULT_METHOD_COSTS["llm-verbalizer"]
+        < DEFAULT_METHOD_COSTS["human-review"]
+    )

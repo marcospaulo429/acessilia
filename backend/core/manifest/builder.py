@@ -63,7 +63,7 @@ OBLIGATION_BY_TYPE = {
     "formula": (
         "verbalize-formula",
         "A fórmula deve possuir representação matemática acessível e verbalização.",
-        ["mathml", "latex-verbalizer", "human-review"],
+        ["mathml", "latex-verbalizer", "llm-verbalizer", "human-review"],
     ),
     "code": (
         "preserve-code-semantics",
@@ -83,6 +83,7 @@ DEFAULT_METHOD_COSTS = {
     "pandoc-table": 15,
     "mathml": 10,
     "latex-verbalizer": 20,
+    "llm-verbalizer": 60,
     "pandoc-code": 10,
     "docling-retry": 25,
     "pymupdf-region": 30,

@@ -149,3 +149,51 @@ def test_replanning_second_problem_excludes_tried_and_satisfied():
     assert "(tried o-describe vision)" in compiled.text
     assert "(satisfied o-extract)" in compiled.text
     assert "(satisfied o-describe)" in compiled.text
+
+
+def test_replanning_formula_cascade_falls_back_to_llm_then_human():
+    manifest = make_manifest()
+    manifest.elements[0].type = "formula"
+    manifest.elements[0].raw_label = "formula"
+    manifest.obligations[1] = Obligation(
+        id="o-describe",
+        kind="verbalize-formula",
+        target_ids=["element-1"],
+        dependencies=["o-extract"],
+        admissible_methods=[
+            "mathml",
+            "latex-verbalizer",
+            "llm-verbalizer",
+            "human-review",
+        ],
+        method_costs={
+            "mathml": 10,
+            "latex-verbalizer": 20,
+            "llm-verbalizer": 60,
+            "human-review": 100,
+        },
+        rationale="Fórmula deve ser acessível",
+    )
+    registry = MethodRegistry()
+    registry.register("docling", _ok)
+    registry.register("mathml", _fail)
+    registry.register("latex-verbalizer", _fail)
+    registry.register("llm-verbalizer", _ok)
+    registry.register("human-review", _ok)
+
+    orchestrator = _orchestrator(registry)
+    updated, _plan, _c, report, replans, failure = (
+        orchestrator._execute_with_replanning(manifest)
+    )
+
+    assert failure is None
+    assert report.status == "completed"
+    assert replans == 2
+    formula = next(o for o in updated.obligations if o.id == "o-describe")
+    assert formula.status == "satisfied"
+    # Ordem da cascata guiada pelos custos: 10 -> 20 -> 60; humano nunca roda.
+    assert [a.method for a in formula.attempts] == [
+        "mathml",
+        "latex-verbalizer",
+        "llm-verbalizer",
+    ]
