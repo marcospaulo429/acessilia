@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Iterable
 
@@ -293,14 +294,21 @@ class PddlAccessibilityOrchestrator:
 
         if status_callback:
             await status_callback("Analisando documento com agente estrutural...")
+        phase_started = time.perf_counter()
         manifest = await asyncio.to_thread(
             self.information_structural.process,
             file_path.resolve(),
             language="pt-BR",
         )
 
+        timings: dict[str, float] = {}
+        timings["extraction_seconds"] = round(
+            time.perf_counter() - phase_started, 3
+        )
+
         if status_callback:
             await status_callback("Enriquecendo descrições de imagens...")
+        phase_started = time.perf_counter()
         await _enrich_picture_descriptions(
             manifest,
             file_path.resolve(),
@@ -313,13 +321,16 @@ class PddlAccessibilityOrchestrator:
             manifest,
             file_path.resolve(),
         )
+        timings["enrichment_seconds"] = round(
+            time.perf_counter() - phase_started, 3
+        )
 
         if status_callback:
             await status_callback("Gerando plano nominal com PDDL...")
 
         execution_report: ExecutionReport | None = None
-        replans = 0
-        replan_failure: str | None = None
+        execution_stats: dict[str, Any] = {}
+        phase_started = time.perf_counter()
         if self.execute_live:
             if status_callback:
                 await status_callback(
@@ -330,8 +341,7 @@ class PddlAccessibilityOrchestrator:
                 plan,
                 comparison,
                 execution_report,
-                replans,
-                replan_failure,
+                execution_stats,
             ) = await asyncio.to_thread(self._execute_with_replanning, manifest)
         else:
             plan, comparison = await asyncio.to_thread(self._build_plan, manifest)
@@ -344,6 +354,10 @@ class PddlAccessibilityOrchestrator:
                     manifest,
                     dry_run=True,
                 )
+        timings["planning_execution_seconds"] = round(
+            time.perf_counter() - phase_started, 3
+        )
+        execution_stats["timings"] = timings
 
         payload = build_pddl_structured_payload(
             file_path=file_path,
@@ -352,8 +366,7 @@ class PddlAccessibilityOrchestrator:
             planner_backend=self.planner_backend,
             execution_report=execution_report,
             comparison=comparison,
-            replans=replans,
-            replan_failure=replan_failure,
+            execution_stats=execution_stats,
         )
 
         if structured_output:
@@ -410,8 +423,7 @@ class PddlAccessibilityOrchestrator:
         NominalPlan,
         PlanningComparison | None,
         ExecutionReport,
-        int,
-        str | None,
+        dict[str, Any],
     ]:
         """Executa o plano em modo live, replanejando após falhas de método.
 
@@ -420,6 +432,11 @@ class PddlAccessibilityOrchestrator:
         então o laço termina. ``max_replans`` é apenas um cinto de segurança.
         """
         plan, comparison = self._build_plan(manifest)
+        stats: dict[str, Any] = {
+            "replans": 0,
+            "failure": None,
+            "initial_expected_cost": plan.expected_total_cost,
+        }
         current = manifest
         replans = 0
         failure: str | None = None
@@ -451,6 +468,9 @@ class PddlAccessibilityOrchestrator:
             except (ValueError, RuntimeError) as exc:
                 failure = f"Replanejamento impossível: {exc}"
                 break
+        stats["replans"] = replans
+        stats["failure"] = failure
+        stats["final_expected_cost"] = plan.expected_total_cost
         if failure:
             logger.warning(
                 "Pipeline PDDL: execução encerrada sem completar após {} "
@@ -465,7 +485,7 @@ class PddlAccessibilityOrchestrator:
                 "Pipeline PDDL: plano concluído com {} replanejamento(s)",
                 replans,
             )
-        return current, plan, comparison, report, replans, failure
+        return current, plan, comparison, report, stats
 
 
 async def _enrich_picture_descriptions(
@@ -800,6 +820,62 @@ def _is_placeholder_text(text: str) -> bool:
     return normalized in {"body", "_root_", "root", "unspecified", "group"}
 
 
+def _execution_metrics_from_manifest(
+    manifest: ProcessingManifest,
+) -> dict[str, Any]:
+    """Agrega métricas da execução live a partir de attempts/status."""
+    winner_by_method: dict[str, int] = {}
+    by_kind: dict[str, dict[str, int]] = {}
+    failed_attempts = 0
+    wasted_cost = 0
+    executed_cost = 0
+    recovered = 0
+    human_review = 0
+    for obligation in manifest.obligations:
+        kind_stats = by_kind.setdefault(
+            obligation.kind, {"total": 0, "satisfied": 0}
+        )
+        kind_stats["total"] += 1
+        failures = [
+            attempt
+            for attempt in obligation.attempts
+            if attempt.status in {"failed", "rejected"}
+        ]
+        failed_attempts += len(failures)
+        wasted_cost += sum(
+            obligation.method_costs.get(attempt.method, 50)
+            for attempt in failures
+        )
+        if obligation.status != "satisfied":
+            continue
+        kind_stats["satisfied"] += 1
+        winner = next(
+            (
+                attempt.method
+                for attempt in reversed(obligation.attempts)
+                if attempt.status == "succeeded"
+            ),
+            None,
+        )
+        if winner is None:
+            continue  # satisfeita sem attempts (ex.: dry-run)
+        winner_by_method[winner] = winner_by_method.get(winner, 0) + 1
+        executed_cost += obligation.method_costs.get(winner, 50)
+        if winner == "human-review":
+            human_review += 1
+        if failures:
+            recovered += 1
+    return {
+        "winner_by_method": winner_by_method,
+        "by_kind": by_kind,
+        "failed_attempts": failed_attempts,
+        "wasted_cost": wasted_cost,
+        "executed_cost": executed_cost,
+        "recovered_obligations": recovered,
+        "human_review_obligations": human_review,
+    }
+
+
 def build_pddl_structured_payload(
     *,
     file_path: Path,
@@ -808,11 +884,13 @@ def build_pddl_structured_payload(
     planner_backend: str,
     execution_report: ExecutionReport | None,
     comparison: PlanningComparison | None,
-    replans: int = 0,
-    replan_failure: str | None = None,
+    execution_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pages_payload = _manifest_pages_to_payload(manifest)
     text_output = _render_text_from_pages(pages_payload)
+    stats = execution_stats or {}
+    replans = stats.get("replans", 0)
+    replan_failure = stats.get("failure")
 
     technical_warnings: list[str] = []
     if execution_report is None:
@@ -847,6 +925,11 @@ def build_pddl_structured_payload(
             "replans": replans,
             "failure": replan_failure,
             "obligations": obligation_counts,
+            "metrics": _execution_metrics_from_manifest(manifest),
+            "plan_steps": len(plan.steps),
+            "initial_expected_cost": stats.get("initial_expected_cost"),
+            "final_expected_cost": stats.get("final_expected_cost"),
+            "timings": stats.get("timings"),
         },
         "canonical_metadata": {
             "pipeline_engine": "pddl",

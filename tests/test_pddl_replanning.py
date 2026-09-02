@@ -48,13 +48,14 @@ def test_replanning_loop_recovers_with_alternative_method():
         plan,
         _comparison,
         report,
-        replans,
-        failure,
+        stats,
     ) = orchestrator._execute_with_replanning(manifest)
 
-    assert failure is None
+    assert stats["failure"] is None
     assert report.status == "completed"
-    assert replans == 1
+    assert stats["replans"] == 1
+    # Custos rastreados: plano inicial (vision=10) vs final (human-review=100).
+    assert stats["initial_expected_cost"] < stats["final_expected_cost"]
     described = next(o for o in updated.obligations if o.id == "o-describe")
     assert described.status == "satisfied"
     assert [a.method for a in described.attempts] == [
@@ -83,13 +84,12 @@ def test_replanning_loop_exhausts_methods_gracefully():
         _plan,
         _comparison,
         report,
-        replans,
-        failure,
+        stats,
     ) = orchestrator._execute_with_replanning(manifest)
 
-    assert failure is not None
+    assert stats["failure"] is not None
     assert report.status == "failed"
-    assert replans == 1
+    assert stats["replans"] == 1
     described = next(o for o in updated.obligations if o.id == "o-describe")
     assert described.status == "failed"
     assert len(described.attempts) == 2
@@ -118,18 +118,44 @@ def test_replanning_loop_respects_max_replans():
         _plan,
         _comparison,
         report,
-        replans,
-        failure,
+        stats,
     ) = orchestrator._execute_with_replanning(manifest)
 
-    assert failure is not None
-    assert "Limite de replanejamentos" in failure
-    assert replans == 1
+    assert stats["failure"] is not None
+    assert "Limite de replanejamentos" in stats["failure"]
+    assert stats["replans"] == 1
     assert report.status == "replan-required"
     described = next(o for o in updated.obligations if o.id == "o-describe")
     # Duas tentativas (m-a e m-b); m-c nunca roda porque o limite interrompe.
     assert [a.method for a in described.attempts] == ["m-a", "m-b"]
     assert updated.status == "failed"
+
+
+def test_execution_metrics_capture_recovery_and_costs():
+    from backend.agents.pddl_orchestrator import (
+        _execution_metrics_from_manifest,
+    )
+
+    manifest = make_manifest()
+    registry = MethodRegistry()
+    registry.register("docling", _ok)
+    registry.register("vision", _fail)
+    registry.register("human-review", _ok)
+
+    orchestrator = _orchestrator(registry)
+    updated, *_ = orchestrator._execute_with_replanning(manifest)
+
+    metrics = _execution_metrics_from_manifest(updated)
+    assert metrics["recovered_obligations"] == 1
+    assert metrics["human_review_obligations"] == 1
+    assert metrics["winner_by_method"] == {"docling": 1, "human-review": 1}
+    assert metrics["failed_attempts"] == 1
+    assert metrics["wasted_cost"] == 10  # custo do vision que falhou
+    assert metrics["executed_cost"] == 105  # docling(5) + human-review(100)
+    assert metrics["by_kind"]["describe-image"] == {
+        "total": 1,
+        "satisfied": 1,
+    }
 
 
 def test_replanning_second_problem_excludes_tried_and_satisfied():
@@ -182,13 +208,13 @@ def test_replanning_formula_cascade_falls_back_to_llm_then_human():
     registry.register("human-review", _ok)
 
     orchestrator = _orchestrator(registry)
-    updated, _plan, _c, report, replans, failure = (
+    updated, _plan, _c, report, stats = (
         orchestrator._execute_with_replanning(manifest)
     )
 
-    assert failure is None
+    assert stats["failure"] is None
     assert report.status == "completed"
-    assert replans == 2
+    assert stats["replans"] == 2
     formula = next(o for o in updated.obligations if o.id == "o-describe")
     assert formula.status == "satisfied"
     # Ordem da cascata guiada pelos custos: 10 -> 20 -> 60; humano nunca roda.
