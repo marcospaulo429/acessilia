@@ -292,6 +292,15 @@ async def _main_async(args: argparse.Namespace) -> dict[str, Any]:
             lambda _image, _page, _latex=args.mock_llm: _latex
         )
 
+    if args.skip_enrichment:
+        # Enriquecimento (VisionAgent/DataAgent) e identico nos tres bracos e
+        # depende de LLM externa; pular evita minutos de timeout por imagem.
+        async def _noop_enrich(*_args: Any, **_kwargs: Any) -> None:
+            return None
+
+        pddl_module._enrich_picture_descriptions = _noop_enrich
+        pddl_module._enrich_table_structures = _noop_enrich
+
     tmpdir = Path(args.tmpdir)
     tmpdir.mkdir(parents=True, exist_ok=True)
 
@@ -384,6 +393,11 @@ def main() -> None:
         "--extractor-backend",
         choices=["docling", "pymupdf"],
         default="docling",
+    )
+    parser.add_argument(
+        "--skip-enrichment",
+        action="store_true",
+        help="Pula o enriquecimento visual/OCR pre-planejamento (igual nos 3 bracos)",
     )
     parser.add_argument("--planner-backend", default="internal")
     parser.add_argument("--mode", default="medio")
