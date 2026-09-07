@@ -125,6 +125,103 @@ class ToolboxClient:
                 f"Toolbox indisponível em {self.base_url}: {e}"
             ) from e
 
+    async def providers(self) -> list[dict[str, Any]]:
+        """GET /v1/providers — lista provedores registrados."""
+        data = await self._get("/v1/providers")
+        if isinstance(data, list):
+            return data
+        return data.get("providers", [])
+
+    async def provider_health(self, provider_id: str) -> dict[str, Any]:
+        """GET /v1/providers/{id}/health — saúde técnica de um provedor.
+
+        Nunca lança: indisponibilidade vira ``{"healthy": False, "detail": ...}``
+        para que o planejador trate como fato (``provider-available``).
+        """
+        try:
+            data = await self._get(f"/v1/providers/{provider_id}/health")
+        except ToolboxError as e:
+            return {"provider": provider_id, "healthy": False, "detail": str(e)}
+        if isinstance(data, dict):
+            data.setdefault("provider", provider_id)
+            return data
+        return {"provider": provider_id, "healthy": bool(data)}
+
+    async def planning_domain(self) -> str:
+        """GET /v1/planning/domain — fragmento PDDL publicado pela Toolbox."""
+        return await self._get_text("/v1/planning/domain")
+
+    async def planning_capability(self, capability_id: str) -> str:
+        """GET /v1/planning/capabilities/{id} — ação PDDL de uma capability."""
+        return await self._get_text(f"/v1/planning/capabilities/{capability_id}")
+
+    async def execute(
+        self,
+        capability_id: str,
+        *,
+        file_path: Path | None = None,
+        artifact_id: str | None = None,
+        provider: str | None = None,
+        parameters: dict[str, Any] | None = None,
+        use_remote_cache: bool | None = None,
+    ) -> dict[str, Any]:
+        """POST /v1/capabilities/{capability_id}:execute (qualquer capability).
+
+        Aceita upload direto (``file_path``) ou referência a artifact já
+        armazenado (``artifact_id``). ``parameters`` são repassados ao provedor
+        (form fields no upload; JSON quando por artifact). Retorna o JSON
+        completo da resposta, cujo ``status`` deve ser ``succeeded``.
+        """
+        if file_path is None and artifact_id is None:
+            raise ValueError("Forneça file_path ou artifact_id")
+
+        use_cache = (
+            use_remote_cache
+            if use_remote_cache is not None
+            else settings.toolbox_use_remote_cache
+        )
+        provider_id = provider or self.provider
+        url = f"{self.base_url}/v1/capabilities/{capability_id}:execute"
+        payload: dict[str, Any] = {"provider": provider_id, **(parameters or {})}
+        if not use_cache:
+            payload["no_cache"] = True
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout_seconds)) as client:
+                if artifact_id:
+                    response = await client.post(url, json={"artifact_id": artifact_id, **payload})
+                else:
+                    assert file_path is not None
+                    with open(file_path, "rb") as f:
+                        files = {"file": (file_path.name, f, _media_type(file_path))}
+                        response = await client.post(url, files=files, data=payload)
+
+            _raise_for_error(response, capability_id)
+            result = response.json()
+
+            if result.get("status") != "succeeded":
+                raise ToolboxContractViolation(
+                    f"Extração/execução de {capability_id} falhou na Toolbox: "
+                    f"status={result.get('status')}"
+                )
+
+            logger.info(
+                "Toolbox: {} concluída ({} ms, provider={})",
+                capability_id,
+                result.get("provenance", {}).get("duration_ms", "?"),
+                result.get("provider", provider_id),
+            )
+            return result
+
+        except httpx.TimeoutException as e:
+            raise ToolboxTimeout(
+                f"Timeout em {capability_id} via Toolbox: {e}"
+            ) from e
+        except httpx.RequestError as e:
+            raise ToolboxProviderUnavailable(
+                f"Toolbox indisponível em {self.base_url}: {e}"
+            ) from e
+
     async def extract_structure(
         self,
         file_path: Path | None = None,
@@ -138,65 +235,28 @@ class ToolboxClient:
         Aceita upload direto (file_path) ou referência a artifact já armazenado
         (artifact_id). Retorna o JSON completo da resposta.
         """
-        if file_path is None and artifact_id is None:
-            raise ValueError("Forneça file_path ou artifact_id")
-
-        use_cache = (
-            use_remote_cache
-            if use_remote_cache is not None
-            else settings.toolbox_use_remote_cache
+        return await self.execute(
+            "document.structure.extract",
+            file_path=file_path,
+            artifact_id=artifact_id,
+            parameters={"language": language},
+            use_remote_cache=use_remote_cache,
         )
 
-        url = f"{self.base_url}/v1/capabilities/document.structure.extract:execute"
+    async def close(self) -> None:
+        await self._client.aclose()
 
+    async def _get_text(self, path: str) -> str:
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout_seconds)) as client:
-                if artifact_id:
-                    data = {
-                        "artifact_id": artifact_id,
-                        "language": language,
-                        "provider": self.provider,
-                    }
-                    if not use_cache:
-                        data["no_cache"] = True
-                    response = await client.post(url, json=data)
-                else:
-                    with open(file_path, "rb") as f:
-                        files = {"file": (file_path.name, f, _media_type(file_path))}
-                        params: dict[str, Any] = {
-                            "language": language,
-                            "provider": self.provider,
-                        }
-                        if not use_cache:
-                            params["no_cache"] = True
-                        response = await client.post(url, files=files, data=params)
-
-            _raise_for_error(response, "document.structure.extract")
-            result = response.json()
-
-            if result.get("status") != "succeeded":
-                raise ToolboxContractViolation(
-                    f"Extração falhou na Toolbox: status={result.get('status')}"
-                )
-
-            logger.info(
-                "Toolbox: extração concluída ({} ms, provider={})",
-                result.get("provenance", {}).get("duration_ms", "?"),
-                result.get("provider", "?"),
-            )
-            return result
-
+            response = await self._client.get(path)
+            _raise_for_error(response, path)
+            return response.text
         except httpx.TimeoutException as e:
-            raise ToolboxTimeout(
-                f"Timeout ao extrair documento via Toolbox: {e}"
-            ) from e
+            raise ToolboxTimeout(f"Timeout em GET {path}: {e}") from e
         except httpx.RequestError as e:
             raise ToolboxProviderUnavailable(
                 f"Toolbox indisponível em {self.base_url}: {e}"
             ) from e
-
-    async def close(self) -> None:
-        await self._client.aclose()
 
     async def _get(self, path: str) -> Any:
         try:

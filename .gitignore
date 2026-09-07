@@ -43,3 +43,11 @@ tests/fixtures/tutorials/pagina_*.pdf
 
 # Agentes Copilot locais (nao devem ir para PR)
 .github/agents/
+
+# Repositorios externos clonados localmente (toolbox, DrDocBench, OmniDocBench, datasets)
+third_party/
+
+# Dados e saidas do desafio Dr.DocBench (imagens com direitos de terceiros; relatorios volumosos)
+var/data/
+var/reports/
+var/submissions/
