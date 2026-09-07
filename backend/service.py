@@ -35,6 +35,8 @@ def _resolved_structurer() -> str:
             "STRUCTURER=docling mas docling nao instalado. Usando PyMuPDF."
         )
         return "pymupdf"
+    if structurer == "toolbox":
+        logger.info("STRUCTURER=toolbox: usando Acessilia Toolbox remota")
     return structurer
 
 
@@ -65,7 +67,8 @@ agente = _build_orchestrator()
 
 def _cache_version() -> str:
     engine = _normalized_engine()
-    return f"{settings.ai_client}-{engine}-v1"
+    structurer = _resolved_structurer()
+    return f"{settings.ai_client}-{engine}-{structurer}-v1"
 
 
 def _limpar_tarefas_orfas():
