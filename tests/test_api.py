@@ -157,14 +157,29 @@ def test_download_file_invalid_format(client):
     assert resp.status_code == 404
 
 
+def test_download_url_uses_public_api_prefix(monkeypatch):
+    from backend.api.worker import build_download_url
+
+    monkeypatch.setattr(settings, "web_base_url", "https://acessilia.example/")
+
+    assert (
+        build_download_url("tok123")
+        == "https://acessilia.example/download/tok123"
+    )
+
+
 def test_download_full_flow(client, api_paths):
-    from backend.services.download_token_service import criar_token
+    import backend.services.download_token_service as dts
 
     out_dir = api_paths / "output" / "task1"
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "doc.txt").write_text("conteudo de teste", encoding="utf-8")
 
-    token = asyncio.run(criar_token(out_dir, "doc"))
+    token = asyncio.run(dts.criar_token(out_dir, "doc"))
+
+    # Simula reinicio da aplicacao: o token deve sobreviver em history.db.
+    dts._connection.close()
+    dts._connection = None
 
     info = client.get(f"/api/v1/download/{token}")
     assert info.status_code == 200

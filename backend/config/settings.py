@@ -128,6 +128,11 @@ class Settings:
     web_base_url: str = os.getenv("WEB_BASE_URL", "http://localhost:8001")
     web_port: int = int(os.getenv("WEB_PORT", "8001"))
 
+    # Build info (injetado via Docker build --build-arg ou variavel de ambiente)
+    git_commit: str = os.getenv("GIT_COMMIT", "")
+    image_tag: str = os.getenv("IMAGE_TAG", "")
+    image_digest: str = os.getenv("IMAGE_DIGEST", "")
+
     # SMTP Settings
     smtp_server: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
